@@ -1821,6 +1821,7 @@ dependencies = [
     { name = "rich" },
     { name = "sounddevice" },
     { name = "soundfile" },
+    { name = "treemark" },
 ]
 
 [package.optional-dependencies]
@@ -1859,6 +1860,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "sounddevice", specifier = ">=0.4" },
     { name = "soundfile", specifier = ">=0.12" },
+    { name = "treemark", specifier = ">=0.1.0" },
     { name = "webrtcvad-wheels", marker = "extra == 'voice-vad'", specifier = ">=2.0.11" },
 ]
 provides-extras = ["dev", "voice-vad", "elevenlabs"]
@@ -4255,6 +4257,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8b/1a/05bc7d08252ec9ce1cb7d8abd2d4e592b004032b0353fb6841fbfc9849df/traceloop_sdk-0.62.4.tar.gz", hash = "sha256:033dbeb200021c4381a3e2aaf8678747b61d85c758ef9e36648e29b16d0d8deb", size = 350681, upload-time = "2026-09-29T10:45:29.079Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/3d/ec8b3ed013ecc6d5f984a27634dca0aacd8a787314c08024a2123ce5241e/traceloop_sdk-0.62.4-py3-none-any.whl", hash = "sha256:0f7bb433ca1324ab55d099c6aa583c9e7ed1f4d6ad8942ead964965c54b94295", size = 92273, upload-time = "2026-09-29T10:45:27.147Z" },
+]
+
+[[package]]
+name = "treemark"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/67/c0956b979b9e8e53f41f7b2ba088cb7593aaf816ee68c594bcf04e95323f/treemark-0.1.0.tar.gz", hash = "sha256:305aee8f2d097de42b22a7d4b8373fd28a8541eee74f2b52f75087d48ef10336", size = 15951, upload-time = "2026-09-16T17:56:30.985Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/88/b0e22ea20a06dfbaf40f43dd805090696c2d4a39d980e54a153a80b5585c/treemark-0.1.0-py3-none-any.whl", hash = "sha256:59a5ac33a9e3c5e41a640fc3331eb637326e6274de33a2dbc86680bdc9540efa", size = 10787, upload-time = "2026-09-16T17:56:29.605Z" },
 ]
 
 [[package]]
