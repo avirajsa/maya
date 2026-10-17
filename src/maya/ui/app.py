@@ -92,33 +92,59 @@ async def on_action_clear(action: cl.Action) -> None:
     ).send()
 
 
+
+
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
-    """Handle incoming text chat messages with real-time token streaming."""
+    """Handle text messages with streaming text and an automatic voice reply."""
     session_id = cl.user_session.get("session_id", "default")
     config = get_config()
-
-    # Update global runtime state
     state = get_state()
-    state.set_status(MayaStatus.THINKING)
 
+    state.set_status(MayaStatus.THINKING)
     agent = get_agent()
     msg = cl.Message(content="", author=config.maya_name)
     await msg.send()
 
     try:
         full_response = ""
-        async for token in agent.stream_chat(message.content, session_id=session_id):
+
+        async for token in agent.stream_chat(
+            message.content,
+            session_id=session_id,
+        ):
             await msg.stream_token(token)
             full_response += token
+
         await msg.update()
+
+        # Always synthesize a voice response, even for typed prompts.
+        if full_response.strip():
+            tts = get_tts()
+            audio_bytes = await tts.synthesise(full_response)
+
+            if audio_bytes:
+                audio_element = cl.Audio(
+                    name="maya_response.wav",
+                    content=audio_bytes,
+                    mime="audio/wav",
+                    auto_play=True,
+                )
+                await cl.Message(
+                    content="",
+                    elements=[audio_element],
+                    author=config.maya_name,
+                ).send()
+
     except Exception as e:
-        logger.error("Agent chat error: %s", e, exc_info=True)
-        await msg.stream_token(f"I encountered an error: {str(e)}")
-        await msg.update()
+        logger.error("Agent chat/TTS error: %s", e, exc_info=True)
+        await cl.Message(
+            content="I encountered an error while processing your message or generating speech.",
+            author=config.maya_name,
+        ).send()
+
     finally:
         state.set_status(MayaStatus.IDLE)
-
 
 @cl.on_audio_start
 async def on_audio_start() -> bool:
@@ -196,9 +222,9 @@ async def on_audio_end(elements: list | None = None) -> None:
             audio_bytes = await tts.synthesise(full_response)
             if audio_bytes:
                 output_audio_el = cl.Audio(
-                    name="maya_response.mp3",
+                    name="maya_response.wav",
                     content=audio_bytes,
-                    mime="audio/mp3",
+                    mime="audio/wav",
                     auto_play=True,
                 )
                 await cl.Message(

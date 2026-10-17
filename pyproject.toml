@@ -30,6 +30,7 @@ dependencies = [
     "rich>=13.0",
     "av>=11,<19",
     "treemark>=0.1.0",
+    "piper-tts>=1.8.0",
 ]
 
 [project.optional-dependencies]

@@ -67,7 +67,7 @@ class Settings(BaseSettings):
         description="Voice ID for text-to-speech",
     )
     tts_provider: str = Field(
-        default="edge",
+        default="elevenlabs",
         alias="TTS_PROVIDER",
         description="TTS provider ('edge' or 'elevenlabs')",
     )
