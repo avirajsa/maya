@@ -15,6 +15,13 @@ from maya.tools.system import (
 )
 from maya.tools.web_search import get_webpage_content, search_web
 
+from maya.tools.schedule import (
+    get_today_schedule,
+    get_upcoming_schedule,
+    get_birthday_reminders,
+    plan_next_action,
+)
+
 # Complete registry of all LangChain tools available to Maya
 ALL_TOOLS: list = [
     calculate,
@@ -31,6 +38,10 @@ ALL_TOOLS: list = [
     turn_off_fan,
     turn_on_ac,
     turn_off_ac,
+    get_today_schedule,
+    get_upcoming_schedule,
+    get_birthday_reminders,
+    plan_next_action,
 ]
 
 # List of tool names for quick inspection, filtering, and debugging
