@@ -1922,6 +1922,7 @@ dependencies = [
     { name = "ddgs" },
     { name = "duckduckgo-search" },
     { name = "edge-tts" },
+    { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
@@ -1939,6 +1940,7 @@ dependencies = [
     { name = "sounddevice" },
     { name = "soundfile" },
     { name = "treemark" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
@@ -1954,6 +1956,11 @@ voice-vad = [
     { name = "webrtcvad-wheels" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "av", specifier = ">=11,<19" },
@@ -1964,6 +1971,7 @@ requires-dist = [
     { name = "duckduckgo-search", specifier = ">=6.0" },
     { name = "edge-tts", specifier = ">=6.1" },
     { name = "elevenlabs", marker = "extra == 'elevenlabs'", specifier = ">=1.9" },
+    { name = "fastapi", specifier = ">=0.143.0" },
     { name = "faster-whisper", specifier = ">=1.0" },
     { name = "google-api-python-client", specifier = ">=2.201.0" },
     { name = "google-auth-httplib2", specifier = ">=0.4.4" },
@@ -1984,9 +1992,13 @@ requires-dist = [
     { name = "sounddevice", specifier = ">=0.4" },
     { name = "soundfile", specifier = ">=0.12" },
     { name = "treemark", specifier = ">=0.1.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
     { name = "webrtcvad-wheels", marker = "extra == 'voice-vad'", specifier = ">=2.0.11" },
 ]
 provides-extras = ["dev", "voice-vad", "elevenlabs"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.17.0" }]
 
 [[package]]
 name = "mcp"

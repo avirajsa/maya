@@ -1,4 +1,26 @@
-.PHONY: run ui dev test lint format check install clean
+.PHONY: run ui dev test lint format check install clean api api-dev api-health
+
+# -------------------------
+# Maya API server
+# -------------------------
+
+API_HOST ?= 0.0.0.0
+API_PORT ?= 8000
+API_APP = maya.api.app:app
+
+
+# Run the API server
+api:
+	uv run uvicorn $(API_APP) --app-dir src --host $(API_HOST) --port $(API_PORT)
+
+# Development server with automatic reload
+api-dev:
+	uv run uvicorn $(API_APP) --app-dir src --host $(API_HOST) --port $(API_PORT) --reload
+
+# Check that the API is responding
+api-health:
+	curl --fail http://127.0.0.1:$(API_PORT)/api/v1/health
+
 
 # Install/sync dependencies
 install:
