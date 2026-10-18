@@ -1,11 +1,11 @@
-"""Maya's brain — LangGraph ReAct agent powered by OpenRouter with fallbacks."""
-
+"""Maya's LangGraph ReAct agent with checkpointed context and semantic recall."""
 from collections.abc import AsyncIterator
 from datetime import datetime
 import logging
+import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, RemoveMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
@@ -16,191 +16,124 @@ from maya.tools import ALL_TOOLS
 
 logger = logging.getLogger(__name__)
 
-
 def _make_llm(model: str, config: MayaConfig) -> ChatOpenAI:
-    """Create a streaming ChatOpenAI client directed to OpenRouter with app headers."""
-    api_key = config.openrouter_api_key or "sk-or-placeholder"
     return ChatOpenAI(
         model=model,
-        openai_api_key=api_key,
+        openai_api_key=config.openrouter_api_key or "sk-or-placeholder",
         openai_api_base=config.openrouter_base_url,
         temperature=config.llm_temperature,
-        default_headers={
-            "HTTP-Referer": "https://github.com/tauai/maya",
-            "X-Title": "Maya AI Assistant",
-        },
+        default_headers={"HTTP-Referer": "https://github.com/tauai/maya", "X-Title": "Maya AI Assistant"},
         streaming=True,
     )
 
-
 class MayaAgent:
-    """Core Maya ReAct agent managing LLM orchestration, tools, and memory."""
-
+    """Agent orchestration, recent conversation history, and long-term recall."""
     def __init__(self, config: MayaConfig, memory_manager: MemoryManager) -> None:
-        self.config = config
-        self.memory_manager = memory_manager
+        self.config, self.memory_manager = config, memory_manager
+        primary = _make_llm(config.llm_primary, config)
+        fallbacks = [_make_llm(m, config) for m in (config.llm_fallback_1, config.llm_fallback_2) if m]
+        self.llm = primary.with_fallbacks(fallbacks) if fallbacks else primary
+        self.agent_graph = create_react_agent(model=self.llm, tools=ALL_TOOLS, checkpointer=memory_manager.get_checkpointer())
 
-        # Build primary model and fallbacks
-        primary = _make_llm(self.config.llm_primary, self.config)
-        fallbacks: list[ChatOpenAI] = []
-        if self.config.llm_fallback_1:
-            fallbacks.append(_make_llm(self.config.llm_fallback_1, self.config))
-        if self.config.llm_fallback_2:
-            fallbacks.append(_make_llm(self.config.llm_fallback_2, self.config))
-
-        if fallbacks:
-            self.llm = primary.with_fallbacks(fallbacks)
-        else:
-            self.llm = primary
-
-        # Initialize LangGraph ReAct agent with tools and short-term checkpointer
-        checkpointer = self.memory_manager.get_checkpointer()
-        self.agent_graph = create_react_agent(
-            model=self.llm,
-            tools=ALL_TOOLS,
-            checkpointer=checkpointer,
-        )
-
-    async def chat(
-        self,
-        user_input: str,
-        session_id: str = "default",
-        voice_mode: bool = False,
-    ) -> str:
-        """Process user input through the agent and return the final text response.
-
-        Args:
-            user_input: Input text from user.
-            session_id: Unique thread identifier for short-term checkpointing.
-            voice_mode: When True, enforces concise spoken response guidelines.
-
-        Returns:
-            The agent's text response.
-        """
+    async def _payload(self, user_input: str, session_id: str, voice_mode: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Keep only the current system prompt; don't append a new one forever."""
+        thread_config = {"configurable": {"thread_id": session_id}}
+        removals = []
         try:
-            # Retrieve relevant long-term context
-            memory_context = await self.memory_manager.enrich_with_memories(user_input)
+            state = await self.agent_graph.aget_state(thread_config)
+            for msg in (state.values or {}).get("messages", []):
+                if isinstance(msg, SystemMessage) and getattr(msg, "id", None):
+                    removals.append(RemoveMessage(id=msg.id))
+        except Exception:
+            logger.debug("Unable to inspect prior graph state before turn", exc_info=True)
+        now = datetime.now().astimezone().strftime("%A, %B %d, %Y, %I:%M %p %Z")
+        prompt = get_system_prompt(now)
+        memory = await self.memory_manager.enrich_with_memories(user_input)
+        if memory:
+            prompt += "\n\n" + memory
+        if voice_mode:
+            prompt += "\n\n" + MAYA_VOICE_SUFFIX
+        return {"messages": [*removals, SystemMessage(content=prompt), HumanMessage(content=user_input)]}, thread_config
 
-            # Build system prompt with temporal anchor
-            now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
-            system_prompt = get_system_prompt(now_str)
-            if memory_context:
-                system_prompt += f"\n\n{memory_context}"
-            if voice_mode:
-                system_prompt += f"\n\n{MAYA_VOICE_SUFFIX}"
+    @staticmethod
+    def _final_text(result: dict[str, Any]) -> str:
+        for msg in reversed(result.get("messages", [])):
+            if getattr(msg, "type", "") != "ai" or getattr(msg, "tool_calls", None):
+                continue
+            content = getattr(msg, "content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return "\n".join(p if isinstance(p, str) else p.get("text", "") for p in content if isinstance(p, (str, dict))).strip()
+        return "I'm here, but I couldn't generate a response. How can I help?"
 
-            messages = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_input),
-            ]
-
-            result = await self.agent_graph.ainvoke(
-                {"messages": messages},
-                config={"configurable": {"thread_id": session_id}},
-            )
-
-            res_messages = result.get("messages", [])
-            if res_messages:
-                last_msg = res_messages[-1]
-                content = last_msg.content
-                if isinstance(content, str):
-                    return content
-                elif isinstance(content, list):
-                    text_parts = []
-                    for part in content:
-                        if isinstance(part, str):
-                            text_parts.append(part)
-                        elif isinstance(part, dict) and "text" in part:
-                            text_parts.append(part["text"])
-                    return "\n".join(text_parts)
-                return str(content)
-
-            return "I am here, but I didn't generate a response. How can I help you?"
-        except Exception as e:
-            logger.error("Error during agent chat invocation: %s", e, exc_info=True)
-            return f"I apologize, I encountered an issue: {str(e)}"
-
-    async def stream_chat(
-        self,
-        user_input: str,
-        session_id: str = "default",
-        voice_mode: bool = False,
-    ) -> AsyncIterator[str]:
-        """Stream tokens from the agent response as they are generated.
-
-        Args:
-            user_input: Input text from user.
-            session_id: Unique thread identifier.
-            voice_mode: When True, optimizes for voice formatting.
-
-        Yields:
-            Token strings as they arrive.
-        """
+    async def _archive_turn(self, user_input: str, response: str, session_id: str) -> None:
         try:
-            memory_context = await self.memory_manager.enrich_with_memories(user_input)
-            now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
-            system_prompt = get_system_prompt(now_str)
-            if memory_context:
-                system_prompt += f"\n\n{memory_context}"
-            if voice_mode:
-                system_prompt += f"\n\n{MAYA_VOICE_SUFFIX}"
+            await self.memory_manager.remember_turn(session_id, user_input, response)
+        except Exception:
+            logger.warning("Could not archive conversation turn", exc_info=True)
+        # Conservative first-pass extraction: only save explicit, stable statements.
+        patterns = [
+            (r"\bmy name is ([^.!?\n]{1,80})", "name"),
+            (r"\bcall me ([^.!?\n]{1,80})", "preferred_name"),
+            (r"\bi prefer ([^.!?\n]{1,180})", "preference"),
+            (r"\bremember that ([^.!?\n]{1,180})", "explicit_memory"),
+            (r"\bmy goal is ([^.!?\n]{1,180})", "goal"),
+            (r"\bi am working on ([^.!?\n]{1,180})", "active_project"),
+        ]
+        for pattern, key in patterns:
+            match = re.search(pattern, user_input.strip(), re.IGNORECASE)
+            if match and match.group(1).strip():
+                try:
+                    await self.memory_manager.long_term.remember_fact(key, match.group(1).strip().rstrip(" ,"))
+                except Exception:
+                    logger.warning("Could not save explicit memory", exc_info=True)
+                break
 
-            input_payload = {
-                "messages": [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_input),
-                ]
-            }
-            thread_config = {"configurable": {"thread_id": session_id}}
+    async def chat(self, user_input: str, session_id: str = "default", voice_mode: bool = False) -> str:
+        try:
+            payload, cfg = await self._payload(user_input, session_id, voice_mode)
+            result = await self.agent_graph.ainvoke(payload, config=cfg)
+            response = self._final_text(result)
+            await self._archive_turn(user_input, response, session_id)
+            return response
+        except Exception as exc:
+            logger.error("Error during agent chat invocation: %s", exc, exc_info=True)
+            return f"I apologize, I encountered an issue: {exc}"
 
-            yielded_any = False
-            async for event in self.agent_graph.astream_events(
-                input_payload,
-                config=thread_config,
-                version="v2",
-            ):
-                if event.get("event") == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk and hasattr(chunk, "content") and chunk.content:
-                        token = chunk.content
-                        if isinstance(token, str) and token:
-                            yielded_any = True
-                            yield token
-                        elif isinstance(token, list):
-                            for item in token:
-                                if isinstance(item, dict) and "text" in item:
-                                    yielded_any = True
-                                    yield item["text"]
-                                elif isinstance(item, str) and item:
-                                    yielded_any = True
-                                    yield item
-
-            if not yielded_any:
-                full_response = await self.chat(
-                    user_input=user_input,
-                    session_id=session_id,
-                    voice_mode=voice_mode,
-                )
-                if full_response:
-                    yield full_response
-
-        except Exception as e:
-            logger.error("Error during streaming chat: %s", e, exc_info=True)
-            yield f"I encountered an issue processing your request: {str(e)}"
+    async def stream_chat(self, user_input: str, session_id: str = "default", voice_mode: bool = False) -> AsyncIterator[str]:
+        try:
+            payload, cfg = await self._payload(user_input, session_id, voice_mode)
+            collected: list[str] = []
+            async for event in self.agent_graph.astream_events(payload, config=cfg, version="v2"):
+                if event.get("event") != "on_chat_model_stream":
+                    continue
+                chunk = event.get("data", {}).get("chunk")
+                content = getattr(chunk, "content", None)
+                parts = [content] if isinstance(content, str) else content if isinstance(content, list) else []
+                for part in parts:
+                    token = part if isinstance(part, str) else part.get("text", "") if isinstance(part, dict) else ""
+                    if token:
+                        collected.append(token)
+                        yield token
+            response = "".join(collected).strip()
+            if response:
+                await self._archive_turn(user_input, response, session_id)
+            else:
+                # Avoid silently returning no output for providers that don't stream events.
+                response = await self.chat(user_input, session_id, voice_mode)
+                if response:
+                    yield response
+        except Exception as exc:
+            logger.error("Error during streaming chat: %s", exc, exc_info=True)
+            yield f"I encountered an issue processing your request: {exc}"
 
     async def store_memory(self, fact: str, session_id: str = "default") -> None:
-        """Store a fact into long-term memory."""
-        await self.memory_manager.long_term.store(session_id=session_id, content=fact)
-
+        await self.memory_manager.long_term.store(session_id, fact, {"type": "explicit_memory"})
 
 _agent_singleton: MayaAgent | None = None
-
-
 def get_agent() -> MayaAgent:
-    """Return the singleton MayaAgent instance."""
     global _agent_singleton
     if _agent_singleton is None:
-        config = get_config()
-        memory_manager = get_memory_manager()
-        _agent_singleton = MayaAgent(config=config, memory_manager=memory_manager)
+        _agent_singleton = MayaAgent(get_config(), get_memory_manager())
     return _agent_singleton

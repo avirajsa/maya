@@ -12,6 +12,8 @@ import tempfile
 from typing import Any
 import httpx
 
+from maya.agent.speech_formatter import clean_for_speech
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -145,7 +147,7 @@ class TTS:
     
     async def synthesise(self, text: str) -> bytes:
         """Synthesize speech using the selected provider."""
-        cleaned_text = text.strip()
+        cleaned_text = clean_for_speech(text)
         if not cleaned_text:
             return b""
 
@@ -166,7 +168,7 @@ class TTS:
     '''
     async def synthesise(self, text: str) -> bytes:
         """Synthesize text using the configured provider, without fallback."""
-        cleaned_text = text.strip()
+        cleaned_text = clean_for_speech(text)
         if not cleaned_text:
             return b""
 
@@ -197,7 +199,7 @@ class TTS:
         Returns:
             MP3 audio bytes.
         """
-        cleaned_text = text.strip()
+        cleaned_text = clean_for_speech(text)
         if not cleaned_text:
             return b""
 
